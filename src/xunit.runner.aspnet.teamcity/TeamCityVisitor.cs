@@ -1,17 +1,20 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Xml.Linq;
+using Xunit;
 using Xunit.Abstractions;
 
-namespace Xunit.Runner.AspNet
+namespace xunit.runner.aspnet.teamcity
 {
+    [Visitor("teamcity", EnvironmentVariables = new[] { "TEAMCITY_PROJECT_NAME" })]
     public class TeamCityVisitor : XmlTestExecutionVisitor
     {
         readonly ConcurrentDictionary<string, string> flowMappings = new ConcurrentDictionary<string, string>();
         readonly Func<string, string> flowIdMapper;
 
         public TeamCityVisitor(XElement assembliesElement, Func<bool> cancelThunk)
-            : this(assembliesElement, cancelThunk, _ => Guid.NewGuid().ToString("N")) { }
+            : this(assembliesElement, cancelThunk, _ => Guid.NewGuid().ToString("N"))
+        { }
 
         public TeamCityVisitor(XElement assembliesElement, Func<bool> cancelThunk, Func<string, string> flowIdMapper)
             : base(assembliesElement, cancelThunk)

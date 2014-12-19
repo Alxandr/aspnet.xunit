@@ -13,7 +13,7 @@ public class CommandLineTests
         [Fact]
         public static void MissingAssemblyFileNameThrows()
         {
-            var exception = Record.Exception(() => CommandLine.Parse(new[] { "-teamcity" }));
+            var exception = Record.Exception(() => CommandLine.Parse(new[] { "-visitor Test" }));
 
             Assert.IsType<ArgumentException>(exception);
             Assert.Equal("must specify at least one assembly", exception.Message);
@@ -138,47 +138,37 @@ public class CommandLineTests
 
     public class TeamCityArgument
     {
-        [Fact, TeamCityEnvironmentRestore]
-        public static void TeamCityOptionNotPassedTeamCityFalse()
+        [Fact, VisitorEnvironmentRestore]
+        public static void VisitorOptionNotPassedVisitorNull()
         {
             var arguments = new[] { "assemblyName.dll" };
 
             var commandLine = TestableCommandLine.Parse(arguments);
 
-            Assert.False(commandLine.TeamCity);
+            Assert.Null(commandLine.Visitor);
         }
 
-        [Fact, TeamCityEnvironmentRestore(Value = "TeamCity")]
-        public static void TeamCityOptionNotPassedEnvironmentSetTeamCityTrue()
+        [Fact, VisitorEnvironmentRestore(Value = "TeamCity")]
+        public static void VisitorOptionNotPassedEnvironmentSetVisitor()
         {
             var arguments = new[] { "assemblyName.dll" };
 
             var commandLine = TestableCommandLine.Parse(arguments);
 
-            Assert.True(commandLine.TeamCity);
+            Assert.Equal(commandLine.Visitor, "TeamCity");
         }
 
-        [Fact, TeamCityEnvironmentRestore]
-        public static void TeamCityOptionTeamCityTrue()
+        [Fact, VisitorEnvironmentRestore]
+        public static void VisitorOptionVisitorSet()
         {
-            var arguments = new[] { "assemblyName.dll", "-teamcity" };
+            var arguments = new[] { "assemblyName.dll", "-visitor", "teamcity" };
 
             var commandLine = TestableCommandLine.Parse(arguments);
 
-            Assert.True(commandLine.TeamCity);
+            Assert.Equal(commandLine.Visitor, "teamcity");
         }
 
-        [Fact, TeamCityEnvironmentRestore]
-        public static void TeamCityOptionIgnoreCaseTeamCityTrue()
-        {
-            var arguments = new[] { "assemblyName.dll", "-tEaMcItY" };
-
-            var commandLine = TestableCommandLine.Parse(arguments);
-
-            Assert.True(commandLine.TeamCity);
-        }
-
-        class TeamCityEnvironmentRestore : BeforeAfterTestAttribute
+        class VisitorEnvironmentRestore : BeforeAfterTestAttribute
         {
             string originalValue;
 
@@ -186,13 +176,13 @@ public class CommandLineTests
 
             public override void Before(MethodInfo methodUnderTest)
             {
-                originalValue = Environment.GetEnvironmentVariable("TEAMCITY_PROJECT_NAME");
-                Environment.SetEnvironmentVariable("TEAMCITY_PROJECT_NAME", Value);
+                originalValue = Environment.GetEnvironmentVariable("XUNIT_VISITOR");
+                Environment.SetEnvironmentVariable("XUNIT_VISITOR", Value);
             }
 
             public override void After(MethodInfo methodUnderTest)
             {
-                Environment.SetEnvironmentVariable("TEAMCITY_PROJECT_NAME", originalValue);
+                Environment.SetEnvironmentVariable("XUNIT_VISITOR", originalValue);
             }
         }
     }

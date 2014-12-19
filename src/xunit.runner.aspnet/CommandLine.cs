@@ -13,7 +13,7 @@ namespace Xunit.Runner.AspNet
             for (var i = args.Length - 1; i >= 0; i--)
                 arguments.Push(args[i]);
 
-            TeamCity = Environment.GetEnvironmentVariable("TEAMCITY_PROJECT_NAME") != null;
+            Visitor = Environment.GetEnvironmentVariable("XUNIT_VISITOR");
             DesignTimeTestUniqueNames = new List<string>();
             Project = Parse();
         }
@@ -33,7 +33,7 @@ namespace Xunit.Runner.AspNet
 
         public bool? ParallelizeTestCollections { get; set; }
 
-        public bool TeamCity { get; protected set; }
+        public string Visitor { get; protected set; }
 
         public bool Wait { get; protected set; }
 
@@ -140,10 +140,12 @@ namespace Xunit.Runner.AspNet
                             break;
                     }
                 }
-                else if (optionName == "-teamcity")
+                else if (optionName == "-visitor")
                 {
-                    GuardNoOptionValue(option);
-                    TeamCity = true;
+                    if (option.Value == null)
+                        throw new ArgumentException("missing argument for -visitor");
+
+                    Visitor = option.Value;
                 }
                 else if (optionName == "-noshadow")
                 {

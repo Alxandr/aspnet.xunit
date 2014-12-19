@@ -10,6 +10,7 @@ using Microsoft.Framework.TestAdapter;
 using Xunit.Abstractions;
 using VsTestCase = Microsoft.Framework.TestAdapter.Test;
 using System.Threading.Tasks;
+using xunit.runner.aspnet.Utility;
 
 namespace Xunit.Runner.AspNet
 {
@@ -20,14 +21,17 @@ namespace Xunit.Runner.AspNet
 #pragma warning restore 0649
         bool failed;
         readonly ConcurrentDictionary<string, ExecutionSummary> completionMessages = new ConcurrentDictionary<string, ExecutionSummary>();
+        readonly ConcurrentDictionary<string, Type> visitorTypes = new ConcurrentDictionary<string, Type>();
 
         private readonly IApplicationEnvironment _appEnv;
         private readonly IServiceProvider _services;
+        private readonly VisitorService _visitorService;
 
-        public Program(IApplicationEnvironment appEnv, IServiceProvider services)
+        public Program(IApplicationEnvironment appEnv, IServiceProvider services, ILibraryManager libraryManager)
         {
             _appEnv = appEnv;
             _services = services;
+            _visitorService = new VisitorService(libraryManager);
         }
 
         [STAThread]
@@ -71,7 +75,7 @@ namespace Xunit.Runner.AspNet
 
                 var commandLine = CommandLine.Parse(args);
 
-                var failCount = RunProject(defaultDirectory, commandLine.Project, commandLine.TeamCity,
+                var failCount = RunProject(defaultDirectory, commandLine.Project, commandLine.Visitor,
                                            commandLine.ParallelizeAssemblies, commandLine.ParallelizeTestCollections,
                                            commandLine.MaxParallelThreads,
                                            commandLine.DesignTime, commandLine.List, commandLine.DesignTimeTestUniqueNames);
@@ -123,27 +127,27 @@ namespace Xunit.Runner.AspNet
             Console.WriteLine("usage: xunit.runner.aspnet <assemblyFile> [assemblyFile...] [options]");
             Console.WriteLine();
             Console.WriteLine("Valid options:");
-            Console.WriteLine("  -parallel option       : set parallelization based on option");
-            Console.WriteLine("                         :   none - turn off all parallelization");
-            Console.WriteLine("                         :   collections - only parallelize collections");
-            Console.WriteLine("                         :   assemblies - only parallelize assemblies");
-            Console.WriteLine("                         :   all - parallelize collections and assemblies");
-            Console.WriteLine("  -maxthreads count      : maximum thread count for collection parallelization");
-            Console.WriteLine("                         :   0 - run with unbounded thread count");
-            Console.WriteLine("                         :   >0 - limit task thread pool size to 'count'");
-            Console.WriteLine("  -noshadow              : do not shadow copy assemblies");
-            Console.WriteLine("  -teamcity              : forces TeamCity mode (normally auto-detected)");
-            Console.WriteLine("  -wait                  : wait for input after completion");
+            Console.WriteLine("  -parallel option         : set parallelization based on option");
+            Console.WriteLine("                           :   none - turn off all parallelization");
+            Console.WriteLine("                           :   collections - only parallelize collections");
+            Console.WriteLine("                           :   assemblies - only parallelize assemblies");
+            Console.WriteLine("                           :   all - parallelize collections and assemblies");
+            Console.WriteLine("  -maxthreads count        : maximum thread count for collection parallelization");
+            Console.WriteLine("                           :   0 - run with unbounded thread count");
+            Console.WriteLine("                           :   >0 - limit task thread pool size to 'count'");
+            Console.WriteLine("  -noshadow                : do not shadow copy assemblies");
+            Console.WriteLine("  -visitor name            : the visitor to use to generate the output");
+            Console.WriteLine("  -wait                    : wait for input after completion");
             Console.WriteLine("  -trait \"name=value\"    : only run tests with matching name/value traits");
-            Console.WriteLine("                         : if specified more than once, acts as an OR operation");
+            Console.WriteLine("                           : if specified more than once, acts as an OR operation");
             Console.WriteLine("  -notrait \"name=value\"  : do not run tests with matching name/value traits");
-            Console.WriteLine("                         : if specified more than once, acts as an AND operation");
+            Console.WriteLine("                           : if specified more than once, acts as an AND operation");
             Console.WriteLine("  -method \"name\"         : run a given test method (should be fully specified;");
-            Console.WriteLine("                         : i.e., 'MyNamespace.MyClass.MyTestMethod')");
-            Console.WriteLine("                         : if specified more than once, acts as an OR operation");
+            Console.WriteLine("                           : i.e., 'MyNamespace.MyClass.MyTestMethod')");
+            Console.WriteLine("                           : if specified more than once, acts as an OR operation");
             Console.WriteLine("  -class \"name\"          : run all methods in a given test class (should be fully");
-            Console.WriteLine("                         : specified; i.e., 'MyNamespace.MyClass')");
-            Console.WriteLine("                         : if specified more than once, acts as an OR operation");
+            Console.WriteLine("                           : specified; i.e., 'MyNamespace.MyClass')");
+            Console.WriteLine("                           : if specified more than once, acts as an OR operation");
 
             foreach (var transform in TransformFactory.AvailableTransforms)
                 Console.WriteLine("  {0} : {1}",
@@ -151,7 +155,7 @@ namespace Xunit.Runner.AspNet
                                   transform.Description);
         }
 
-        int RunProject(string defaultDirectory, XunitProject project, bool teamcity, bool? parallelizeAssemblies, bool? parallelizeTestCollections, int? maxThreadCount, bool designTime, bool list, IReadOnlyList<string> designTimeFullyQualifiedNames)
+        int RunProject(string defaultDirectory, XunitProject project, string visitor, bool? parallelizeAssemblies, bool? parallelizeTestCollections, int? maxThreadCount, bool designTime, bool list, IReadOnlyList<string> designTimeFullyQualifiedNames)
         {
             XElement assembliesElement = null;
             var xmlTransformers = TransformFactory.GetXmlTransformers(project);
@@ -172,7 +176,7 @@ namespace Xunit.Runner.AspNet
 
                 if (parallelizeAssemblies.GetValueOrDefault())
                 {
-                    var tasks = project.Assemblies.Select(assembly => Task.Run(() => ExecuteAssembly(consoleLock, defaultDirectory, assembly, needsXml, teamcity, parallelizeTestCollections, maxThreadCount, project.Filters, designTime, list, designTimeFullyQualifiedNames)));
+                    var tasks = project.Assemblies.Select(assembly => Task.Run(() => ExecuteAssembly(consoleLock, defaultDirectory, assembly, needsXml, visitor, parallelizeTestCollections, maxThreadCount, project.Filters, designTime, list, designTimeFullyQualifiedNames)));
                     var results = Task.WhenAll(tasks).GetAwaiter().GetResult();
                     foreach (var assemblyElement in results.Where(result => result != null))
                         assembliesElement.Add(assemblyElement);
@@ -181,7 +185,7 @@ namespace Xunit.Runner.AspNet
                 {
                     foreach (var assembly in project.Assemblies)
                     {
-                        var assemblyElement = ExecuteAssembly(consoleLock, defaultDirectory, assembly, needsXml, teamcity, parallelizeTestCollections, maxThreadCount, project.Filters, designTime, list, designTimeFullyQualifiedNames);
+                        var assemblyElement = ExecuteAssembly(consoleLock, defaultDirectory, assembly, needsXml, visitor, parallelizeTestCollections, maxThreadCount, project.Filters, designTime, list, designTimeFullyQualifiedNames);
                         if (assemblyElement != null)
                             assembliesElement.Add(assemblyElement);
                     }
@@ -245,19 +249,31 @@ namespace Xunit.Runner.AspNet
             return failed ? 1 : completionMessages.Values.Sum(summary => summary.Failed);
         }
 
-        TestMessageVisitor<ITestAssemblyFinished> CreateVisitor(object consoleLock, string defaultDirectory, XElement assemblyElement, bool teamCity)
+        TestMessageVisitor<ITestAssemblyFinished> CreateVisitor(object consoleLock, string defaultDirectory, XElement assemblyElement, string visitor)
         {
-            if (teamCity)
-                return new TeamCityVisitor(assemblyElement, () => cancel);
+            Type visitorType;
+            if (visitor != null)
+            {
+                visitorType = _visitorService.GetVisitorType(visitor);
+                if (visitorType == null)
+                    throw new ArgumentException("Visitor with name " + visitor + " was not found");
+            }
+            else
+            {
+                visitorType = _visitorService.Recomended;
+            }
 
-            return new StandardOutputVisitor(consoleLock, defaultDirectory, assemblyElement, () => cancel, completionMessages);
+            if(visitorType == null)
+                return new StandardOutputVisitor(consoleLock, defaultDirectory, assemblyElement, () => cancel, completionMessages);
+
+            return (TestMessageVisitor<ITestAssemblyFinished>) Activator.CreateInstance(visitorType, assemblyElement, new Func<bool>(() => cancel));
         }
 
         XElement ExecuteAssembly(object consoleLock,
                                  string defaultDirectory,
                                  XunitProjectAssembly assembly,
                                  bool needsXml,
-                                 bool teamCity,
+                                 string visitor,
                                  bool? parallelizeTestCollections,
                                  int? maxThreadCount,
                                  XunitFilters filters,
@@ -330,7 +346,7 @@ namespace Xunit.Runner.AspNet
                         return assemblyElement;
                     }
 
-                    var resultsVisitor = CreateVisitor(consoleLock, defaultDirectory, assemblyElement, teamCity);
+                    var resultsVisitor = CreateVisitor(consoleLock, defaultDirectory, assemblyElement, visitor);
 
                     if (designTime)
                     {

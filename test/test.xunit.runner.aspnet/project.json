@@ -10,7 +10,8 @@
     },
     "dependencies": {
         "xunit": "2.0.0-*",
-        "xunit.runner.aspnet": ""
+        "xunit.runner.aspnet": "",
+        "xunit.runner.aspnet.teamcity": ""
     },
     "commands": {
         "test": "xunit.runner.aspnet"
